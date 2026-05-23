@@ -141,7 +141,7 @@ DEMO_CASES = {
         "requested_amount": 15_000_000,
         "requested_tenor_months": 12,
     },
-    "Vùng xám — Nguyễn Thị D": {
+    "Human Review — Nguyễn Thị D": {
         "customer_id": "DEMO_004",
         "name": "Nguyễn Thị D",
         "customer_type": "small_merchant",
