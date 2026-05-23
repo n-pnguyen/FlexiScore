@@ -29,12 +29,11 @@ def _bootstrap():
 DEMO_CASES = {
     "Happy Path — Nguyễn Văn A": {
         "customer_id": "DEMO_001", "name": "Nguyễn Văn A",
-        "customer_type": "gig_worker", "age": 32, "identity_verified": 1,
+        "customer_type": "gig_worker", "age": 32,
         "requested_amount": 20_000_000, "requested_tenor_months": 12,
         # B1 — Grab API
         "platform_tenure_months": 18, "active_days_per_week": 6.0,
         "rating_avg": 4.8, "cancel_rate": 0.03, "completion_rate": 0.97,
-        "order_frequency": 6.0, "repeat_customer_ratio": 0.75,
         "seller_revenue_growth": 0.0, "refund_rate": 0.0,
         # B2 — VietQR/Bank
         "avg_monthly_income": 15_000_000, "income_cv": 0.15,
@@ -56,12 +55,11 @@ DEMO_CASES = {
     },
     "Risk-First — Trần Thị B": {
         "customer_id": "DEMO_002", "name": "Trần Thị B",
-        "customer_type": "seller_online", "age": 28, "identity_verified": 1,
+        "customer_type": "seller_online", "age": 28,
         "requested_amount": 40_000_000, "requested_tenor_months": 24,
         # B1
         "platform_tenure_months": 24, "active_days_per_week": 6.0,
         "rating_avg": 4.7, "cancel_rate": 0.05, "completion_rate": 0.96,
-        "order_frequency": 8.0, "repeat_customer_ratio": 0.65,
         "seller_revenue_growth": 0.18, "refund_rate": 0.08,
         # B2
         "avg_monthly_income": 25_000_000, "income_cv": 0.20,
@@ -83,12 +81,11 @@ DEMO_CASES = {
     },
     "Credit Coach — Lê Văn C": {
         "customer_id": "DEMO_003", "name": "Lê Văn C",
-        "customer_type": "freelancer", "age": 26, "identity_verified": 1,
+        "customer_type": "freelancer", "age": 26,
         "requested_amount": 15_000_000, "requested_tenor_months": 12,
         # B1
         "platform_tenure_months": 8, "active_days_per_week": 3.5,
         "rating_avg": 4.2, "cancel_rate": 0.15, "completion_rate": 0.82,
-        "order_frequency": 3.0, "repeat_customer_ratio": 0.40,
         "seller_revenue_growth": 0.0, "refund_rate": 0.0,
         # B2
         "avg_monthly_income": 12_000_000, "income_cv": 0.65,
@@ -110,12 +107,11 @@ DEMO_CASES = {
     },
     "Vùng xám — Nguyễn Thị D": {
         "customer_id": "DEMO_004", "name": "Nguyễn Thị D",
-        "customer_type": "small_merchant", "age": 35, "identity_verified": 1,
+        "customer_type": "small_merchant", "age": 35,
         "requested_amount": 25_000_000, "requested_tenor_months": 18,
         # B1
         "platform_tenure_months": 10, "active_days_per_week": 5.0,
         "rating_avg": 4.3, "cancel_rate": 0.10, "completion_rate": 0.88,
-        "order_frequency": 4.5, "repeat_customer_ratio": 0.55,
         "seller_revenue_growth": 0.05, "refund_rate": 0.07,
         # B2
         "avg_monthly_income": 18_000_000, "income_cv": 0.38,
@@ -281,10 +277,6 @@ def _build_sidebar(base: dict):
             format_func=lambda x: TYPE_LABELS[x], index=ctype_idx,
         )
         p["age"] = st.slider("Tuổi", 18, 65, int(p.get("age", 30)), 1)
-        p["identity_verified"] = int(st.checkbox(
-            "Đã xác thực eKYC / định danh",
-            value=bool(p.get("identity_verified", 1)),
-        ))
 
         st.markdown("**Yêu cầu khoản vay**")
         p["requested_amount"] = st.number_input(
@@ -375,16 +367,6 @@ def _build_sidebar(base: dict):
                 "Tỷ lệ hoàn thành  [completion_rate]",
                 0.0, 1.0, float(p.get("completion_rate", 0.90)), 0.01,
                 help="Tốt: >0.90.",
-                disabled=not src_platform,
-            )
-            p["order_frequency"] = st.slider(
-                "Tần suất đơn hàng / ngày  [order_frequency]",
-                0.0, 15.0, float(p.get("order_frequency", 4.0)), 0.5,
-                disabled=not src_platform,
-            )
-            p["repeat_customer_ratio"] = st.slider(
-                "Tỷ lệ khách quay lại  [repeat_customer_ratio]",
-                0.0, 1.0, float(p.get("repeat_customer_ratio", 0.5)), 0.01,
                 disabled=not src_platform,
             )
             p["seller_revenue_growth"] = st.slider(
