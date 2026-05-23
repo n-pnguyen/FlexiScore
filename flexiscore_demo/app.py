@@ -400,7 +400,10 @@ def main():
         with st.spinner("Đang chạy pipeline..."):
             result  = run_flexiscore_pipeline(customer, model)
             explain = generate_reason_codes(customer, result)
-        st.session_state.update(result=result, explain=explain, customer=customer)
+        st.session_state.update(
+            result=result, explain=explain, customer=customer,
+            next_step_done=False,   # reset nút next step mỗi lần chạy mới
+        )
     else:
         result   = st.session_state["result"]
         explain  = st.session_state["explain"]
@@ -493,27 +496,114 @@ def main():
     # ── LEFT: Customer / Decision view ────────────────────────────────────────
     with left:
         st.subheader("👤 Hồ sơ khách hàng")
+
         ctype_label = TYPE_LABELS.get(result["customer_type"], result["customer_type"])
-        amt  = customer.get("requested_amount", 0)
-        tenor= customer.get("requested_tenor_months", 0)
-        inc  = customer.get("avg_monthly_income", 0)
+        amt   = customer.get("requested_amount", 0)
+        tenor = customer.get("requested_tenor_months", 0)
+        inc   = customer.get("avg_monthly_income", 0)
+        icv   = customer.get("income_cv", 0)
+        cfd   = customer.get("cashflow_drop_30d", 0)
+        bot   = customer.get("bill_on_time_ratio", 0)
+        fraud = int(customer.get("fraud_ring_flag", 0))
+        dev   = int(customer.get("shared_device_count", 0))
+        bad   = int(customer.get("bad_neighbor_count", 0))
+        conf  = customer.get("data_confidence", 0)
+
+        # Helper: màu indicator
+        def _dot(ok): return "🟢" if ok else "🔴"
+
+        # ── Thông tin cơ bản ──────────────────────────────────────────────────
         st.markdown(
-            f"**{result['name']}** &nbsp;·&nbsp; {ctype_label}\n\n"
-            f"Thu nhập TB: **{inc:,.0f} đ/tháng** &nbsp;·&nbsp; "
-            f"Yêu cầu: **{amt/1e6:.0f}M / {tenor} tháng**\n\n"
-            f"Risk tier: *{result['risk_tier']}*"
+            f"<div style='background:#f8f9fa;border-radius:8px;padding:12px 16px;"
+            f"border:1px solid #e0e0e0;margin-bottom:10px'>"
+            f"<div style='font-size:1.1em;font-weight:700;margin-bottom:6px'>"
+            f"{result['name']}</div>"
+            f"<div style='color:#555;font-size:0.9em'>{ctype_label} &nbsp;·&nbsp; "
+            f"Risk tier: <em>{result['risk_tier']}</em></div>"
+            f"</div>",
+            unsafe_allow_html=True,
         )
+
+        # ── Yêu cầu khoản vay ────────────────────────────────────────────────
+        st.markdown("**💰 Yêu cầu khoản vay**")
+        va, vb = st.columns(2)
+        va.metric("Số tiền", f"{amt/1e6:.0f} triệu đ")
+        vb.metric("Kỳ hạn", f"{tenor} tháng")
+
+        # ── Tín hiệu tài chính ────────────────────────────────────────────────
+        st.markdown("**📊 Tín hiệu tài chính**")
+        rows_fin = [
+            ("Thu nhập TB / tháng", f"{inc:,.0f} đ",
+             _dot(inc >= 8_000_000)),
+            ("Biến động thu nhập (income_cv)",
+             f"{icv:.2f}",
+             _dot(icv < 0.45) + (" ⚠️ >0.55→F1" if icv > 0.55 else "") + (" 🚨 >0.75→F0" if icv > 0.75 else "")),
+            ("Sụt giảm dòng tiền 30 ngày",
+             f"{cfd:.0%}",
+             _dot(cfd < 0.30) + (" ⚠️ >0.30" if cfd > 0.30 else "")),
+            ("Tỷ lệ thanh toán đúng hạn",
+             f"{bot:.0%}",
+             _dot(bot >= 0.90)),
+        ]
+        st.dataframe(
+            pd.DataFrame(rows_fin, columns=["Chỉ tiêu", "Giá trị", "Nhận định"]),
+            use_container_width=True, hide_index=True,
+        )
+
+        # ── Rủi ro mạng lưới ──────────────────────────────────────────────────
+        st.markdown("**🕸 Rủi ro mạng lưới**")
+        rows_graph = [
+            ("Fraud ring flag",
+             "🚨 CÓ" if fraud else "Không",
+             "🔴 F0 FAIL" if fraud else "🟢 OK"),
+            ("Thiết bị dùng chung",
+             str(dev),
+             ("🔴 ≥4 → F0 FAIL" if dev >= 4 else "⚠️ >1" if dev > 1 else "🟢 OK")),
+            ("Liên kết hồ sơ nợ xấu",
+             str(bad),
+             ("🔴 ≥3 → F0 FAIL" if bad >= 3 else "⚠️ >0" if bad > 0 else "🟢 OK")),
+        ]
+        st.dataframe(
+            pd.DataFrame(rows_graph, columns=["Chỉ tiêu", "Giá trị", "Nhận định"]),
+            use_container_width=True, hide_index=True,
+        )
+
+        # ── Độ tin cậy dữ liệu ────────────────────────────────────────────────
+        st.markdown("**🔗 Độ tin cậy dữ liệu**")
+        conf_color = (
+            "#c62828" if conf < 0.40 else
+            "#f57c00" if conf < 0.60 else
+            "#1565c0" if conf < 0.70 else "#1b5e20"
+        )
+        conf_label = (
+            "F0 FAIL (<40%)" if conf < 0.40 else
+            "CREDIT_COACH (<60%)" if conf < 0.60 else
+            "Cần xác thực thêm (<70%)" if conf < 0.70 else
+            "Đạt chuẩn auto-approve"
+        )
+        st.markdown(
+            f"<div style='padding:10px 14px;background:{conf_color}18;"
+            f"border-left:4px solid {conf_color};border-radius:4px'>"
+            f"<strong style='color:{conf_color};font-size:1.1em'>"
+            f"Data confidence: {conf:.0%}</strong>"
+            f"<span style='color:#666;font-size:0.85em'> — {conf_label}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
         st.divider()
 
-        # Decision-specific content
+        # ── Kết quả phân tích ─────────────────────────────────────────────────
+        st.markdown("**📋 Kết quả phân tích**")
+
         if decision == "AUTO_APPROVE":
-            st.success("Chúc mừng! Khoản vay được phê duyệt tự động.")
+            st.success("Khoản vay được phê duyệt tự động.")
             rec = result.get("recommended_offer")
             if rec:
-                st.markdown(f"**Offer: {rec.label}**")
+                st.markdown(f"**Offer đề xuất: {rec.label}**")
                 st.table(pd.DataFrame({
-                    "": ["Số tiền", "Kỳ hạn", "Lịch trả", "Lãi suất",
-                         "Góp ước tính", "Expected Profit (NH)"],
+                    "": ["Số tiền", "Kỳ hạn", "Lịch trả",
+                         "Lãi suất", "Góp ước tính", "Expected Profit (NH)"],
                     "Giá trị": [
                         f"{rec.amount:,.0f} đ",
                         f"{rec.tenor_months} tháng",
@@ -525,13 +615,13 @@ def main():
                 }).set_index(""))
 
         elif decision == "AUTO_REJECT":
-            st.error("Hồ sơ không đủ điều kiện xử lý tự động.")
+            st.error("Hồ sơ vi phạm quy tắc cứng — không thể xử lý tự động.")
             for r in result.get("reason_codes", []):
                 st.markdown(r)
-            st.caption("Liên hệ cán bộ tín dụng để được tư vấn thêm.")
+            st.caption("Khách hàng có thể liên hệ cán bộ tín dụng để được tư vấn thêm.")
 
         elif decision == "CREDIT_COACH":
-            st.warning("Hồ sơ chưa đủ điều kiện — nhưng có thể cải thiện trong 90 ngày.")
+            st.warning("Hồ sơ chưa đủ điều kiện — có lộ trình cải thiện trong 90 ngày.")
             for r in result.get("reason_codes", []):
                 st.markdown(r)
             plan = result.get("credit_coach_plan", [])
@@ -541,7 +631,7 @@ def main():
                     st.markdown(f"- {item}")
 
         elif decision == "HUMAN_REVIEW":
-            st.info("Hồ sơ đang được chuyển sang thẩm định thêm.\n\nPhản hồi dự kiến 1–2 ngày làm việc.")
+            st.info("Hồ sơ cần thẩm định thêm. Phản hồi dự kiến 1–2 ngày làm việc.")
             for r in result.get("reason_codes", []):
                 st.markdown(r)
             rec = result.get("recommended_offer")
@@ -556,11 +646,11 @@ def main():
         pos = explain.get("positive_factors", [])
         neg = explain.get("negative_factors", [])
         if pos:
-            st.markdown("**Điểm mạnh hồ sơ**")
+            st.markdown("**✅ Điểm mạnh hồ sơ**")
             for f in pos[:5]:
                 st.markdown(f)
         if neg:
-            st.markdown("**Cần cải thiện**")
+            st.markdown("**⚠️ Cần cải thiện**")
             for f in neg[:5]:
                 st.markdown(f)
 
@@ -615,6 +705,57 @@ def main():
                     "OK?":     "✅" if o.ep_positive else "❌",
                 } for o in offers]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # ── Next Step CTA ────────────────────────────────────────────────────────
+    st.divider()
+
+    _NEXT = {
+        "AUTO_APPROVE": {
+            "btn":  "📤  Gửi hồ sơ sang hệ thống phê duyệt khoản vay",
+            "type": "primary",
+            "msg":  (
+                "✅ **Đã gửi hồ sơ sang hệ thống LOS (Loan Origination System).**\n\n"
+                "Hợp đồng vay sẽ được tạo tự động và gửi cho khách hàng ký trong vòng 24 giờ.\n\n"
+                "_[Demo: trong production, bước này kết nối API sang Core Banking / LOS thực tế]_"
+            ),
+        },
+        "HUMAN_REVIEW": {
+            "btn":  "📨  Chuyển hồ sơ cho cán bộ thẩm định",
+            "type": "secondary",
+            "msg":  (
+                "🔍 **Đã chuyển hồ sơ vào hàng đợi thẩm định tín dụng.**\n\n"
+                "Cán bộ phụ trách sẽ nhận thông báo và xử lý trong 1–2 ngày làm việc.\n\n"
+                "_[Demo: trong production, hồ sơ sẽ vào workflow CRM / ticket thẩm định]_"
+            ),
+        },
+        "CREDIT_COACH": {
+            "btn":  "📩  Gửi lộ trình cải thiện đến khách hàng",
+            "type": "secondary",
+            "msg":  (
+                "📚 **Đã gửi lộ trình 90 ngày qua ứng dụng / SMS cho khách hàng.**\n\n"
+                "Khách hàng sẽ nhận thông báo và có thể tái nộp hồ sơ sau khi hoàn thành các bước.\n\n"
+                "_[Demo: trong production, thông báo được đẩy qua app notification / Zalo OA]_"
+            ),
+        },
+        "AUTO_REJECT": {
+            "btn":  "🗃  Lưu hồ sơ & gửi thông báo từ chối",
+            "type": "secondary",
+            "msg":  (
+                "🚫 **Đã lưu hồ sơ và gửi thông báo từ chối đến khách hàng.**\n\n"
+                "Khách hàng có thể khiếu nại hoặc nộp hồ sơ bổ sung sau khi khắc phục vi phạm.\n\n"
+                "_[Demo: trong production, lý do từ chối được ghi vào audit log theo quy định NHNN]_"
+            ),
+        },
+    }
+
+    ns = _NEXT.get(decision, _NEXT["HUMAN_REVIEW"])
+    _c1, _c2, _c3 = st.columns([1, 2, 1])
+    with _c2:
+        if st.button(ns["btn"], use_container_width=True, type=ns["type"],
+                     key="next_step_btn"):
+            st.session_state["next_step_done"] = True
+        if st.session_state.get("next_step_done"):
+            st.success(ns["msg"])
 
     # ── Model info (collapsed) ────────────────────────────────────────────────
     st.divider()
