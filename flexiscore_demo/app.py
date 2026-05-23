@@ -2,6 +2,8 @@
 app.py — FlexiScore Demo Dashboard (Streamlit).
 Chạy: streamlit run app.py
 
+PROTOTYPE — chỉ dùng để minh họa logic, KHÔNG phải hệ thống production.
+
 Kiến trúc dữ liệu:
   Zone A — RAW INPUTS (nhập tay): customer_type, age, eKYC, loan request
   Zone B — FEATURE-ENGINEERED (auto-computed từ data sources, demo cho override):
@@ -29,11 +31,12 @@ def _bootstrap():
 DEMO_CASES = {
     "Happy Path — Nguyễn Văn A": {
         "customer_id": "DEMO_001", "name": "Nguyễn Văn A",
-        "customer_type": "gig_worker", "age": 32,
+        "customer_type": "gig_worker", "age": 32, "identity_verified": 1,
         "requested_amount": 20_000_000, "requested_tenor_months": 12,
         # B1 — Grab API
         "platform_tenure_months": 18, "active_days_per_week": 6.0,
         "rating_avg": 4.8, "cancel_rate": 0.03, "completion_rate": 0.97,
+        "order_frequency": 6.0, "repeat_customer_ratio": 0.75,
         "seller_revenue_growth": 0.0, "refund_rate": 0.0,
         # B2 — VietQR/Bank
         "avg_monthly_income": 15_000_000, "income_cv": 0.15,
@@ -55,11 +58,12 @@ DEMO_CASES = {
     },
     "Risk-First — Trần Thị B": {
         "customer_id": "DEMO_002", "name": "Trần Thị B",
-        "customer_type": "seller_online", "age": 28,
+        "customer_type": "seller_online", "age": 28, "identity_verified": 1,
         "requested_amount": 40_000_000, "requested_tenor_months": 24,
         # B1
         "platform_tenure_months": 24, "active_days_per_week": 6.0,
         "rating_avg": 4.7, "cancel_rate": 0.05, "completion_rate": 0.96,
+        "order_frequency": 8.0, "repeat_customer_ratio": 0.65,
         "seller_revenue_growth": 0.18, "refund_rate": 0.08,
         # B2
         "avg_monthly_income": 25_000_000, "income_cv": 0.20,
@@ -81,11 +85,12 @@ DEMO_CASES = {
     },
     "Credit Coach — Lê Văn C": {
         "customer_id": "DEMO_003", "name": "Lê Văn C",
-        "customer_type": "freelancer", "age": 26,
+        "customer_type": "freelancer", "age": 26, "identity_verified": 1,
         "requested_amount": 15_000_000, "requested_tenor_months": 12,
         # B1
         "platform_tenure_months": 8, "active_days_per_week": 3.5,
         "rating_avg": 4.2, "cancel_rate": 0.15, "completion_rate": 0.82,
+        "order_frequency": 3.0, "repeat_customer_ratio": 0.40,
         "seller_revenue_growth": 0.0, "refund_rate": 0.0,
         # B2
         "avg_monthly_income": 12_000_000, "income_cv": 0.65,
@@ -105,13 +110,14 @@ DEMO_CASES = {
         "data_confidence": 0.55, "missing_data_ratio": 0.38,
         "source_reliability_score": 0.60,
     },
-    "Human Review — Nguyễn Thị D": {
+    "Vùng xám — Nguyễn Thị D": {
         "customer_id": "DEMO_004", "name": "Nguyễn Thị D",
-        "customer_type": "small_merchant", "age": 35,
+        "customer_type": "small_merchant", "age": 35, "identity_verified": 1,
         "requested_amount": 25_000_000, "requested_tenor_months": 18,
         # B1
         "platform_tenure_months": 10, "active_days_per_week": 5.0,
         "rating_avg": 4.3, "cancel_rate": 0.10, "completion_rate": 0.88,
+        "order_frequency": 4.5, "repeat_customer_ratio": 0.55,
         "seller_revenue_growth": 0.05, "refund_rate": 0.07,
         # B2
         "avg_monthly_income": 18_000_000, "income_cv": 0.38,
@@ -136,23 +142,58 @@ DEMO_CASES = {
 TYPE_OPTS = ["gig_worker", "seller_online", "freelancer",
              "small_merchant", "thin_file_customer"]
 TYPE_LABELS = {
-    "gig_worker": "Tài xế công nghệ",
-    "seller_online": "Seller online",
-    "freelancer": "Freelancer",
-    "small_merchant": "Tiểu thương",
+    "gig_worker":         "Tài xế công nghệ (Gig worker)",
+    "seller_online":      "Seller online",
+    "freelancer":         "Freelancer",
+    "small_merchant":     "Tiểu thương",
     "thin_file_customer": "Khách hàng hồ sơ mỏng",
 }
 TENOR_OPTS = [3, 6, 9, 12, 18, 24]
 
+# ── Decision metadata — covers ALL 7 outcome types ────────────────────────────
 DECISIONS = {
-    "AUTO_REJECT":  {"label": "Từ chối tự động",            "emoji": "🚫", "color": "#b71c1c",
-                     "desc": "Vi phạm quy tắc cứng F0 — không thể phê duyệt."},
-    "AUTO_APPROVE": {"label": "Phê duyệt tự động",          "emoji": "✅", "color": "#1b5e20",
-                     "desc": "Đủ điều kiện toàn diện — phê duyệt tự động với offer tối ưu."},
-    "HUMAN_REVIEW": {"label": "Chuyển thẩm định",           "emoji": "🔍", "color": "#e65100",
-                     "desc": "Vùng xám rủi ro — cần cán bộ tín dụng xem xét thêm."},
-    "CREDIT_COACH": {"label": "Chưa duyệt — Lộ trình cải thiện", "emoji": "📚", "color": "#4a148c",
-                     "desc": "Hồ sơ chưa đủ điều kiện — có lộ trình cụ thể để quay lại."},
+    "FRAUD_REJECT": {
+        "label": "Từ chối — Phát hiện gian lận",
+        "emoji": "🚨",
+        "color": "#4a0000",
+        "desc":  "F0 FAIL: Phát hiện liên kết cụm gian lận hoặc graph risk quá cao. Pipeline dừng.",
+    },
+    "FRAUD_REVIEW": {
+        "label": "Xét duyệt thủ công — Vi phạm quy tắc cứng",
+        "emoji": "⚠️",
+        "color": "#b71c1c",
+        "desc":  "F0 FAIL: Vi phạm hard rule nhưng chưa xác định fraud ring. Cần cán bộ xác minh.",
+    },
+    "AUTO_APPROVE": {
+        "label": "Phê duyệt tự động",
+        "emoji": "✅",
+        "color": "#1b5e20",
+        "desc":  "FlexiScore cao · PD thấp · Dữ liệu tin cậy · EP dương — duyệt tự động với offer tối ưu.",
+    },
+    "APPROVE_WITH_OPTIMIZED_OFFER": {
+        "label": "Phê duyệt — Offer tối ưu hóa",
+        "emoji": "✅",
+        "color": "#2e7d32",
+        "desc":  "Đủ điều kiện duyệt; hệ thống tự chọn offer tối ưu thay vì offer gốc.",
+    },
+    "HUMAN_REVIEW": {
+        "label": "Chuyển thẩm định thêm",
+        "emoji": "🔍",
+        "color": "#e65100",
+        "desc":  "Vùng xám rủi ro — cần cán bộ tín dụng xem xét thêm trước khi quyết định.",
+    },
+    "CREDIT_COACH": {
+        "label": "Chưa duyệt — Lộ trình cải thiện 90 ngày",
+        "emoji": "📚",
+        "color": "#4a148c",
+        "desc":  "Hồ sơ chưa đủ điều kiện. Có lộ trình cụ thể để quay lại sau 90 ngày.",
+    },
+    "REJECT_EP_NEGATIVE": {
+        "label": "Từ chối — Không có offer khả thi",
+        "emoji": "❌",
+        "color": "#880e4f",
+        "desc":  "Không tìm được cấu trúc khoản vay nào có Expected Profit dương. Giảm số tiền vay và nộp lại.",
+    },
 }
 
 # ── data_confidence auto-calc từ B5 ──────────────────────────────────────────
@@ -163,16 +204,14 @@ SOURCE_WEIGHTS = {
     "src_graph":    0.20,   # Neo4j Graph
 }
 
+
 def _auto_data_confidence(src_flags: dict, months: int) -> tuple:
-    """Tính data_confidence và missing_data_ratio tự động từ nguồn đã kết nối."""
-    source_score = sum(
-        SOURCE_WEIGHTS[k] for k, v in src_flags.items() if v
-    )
-    # Bonus nếu có nhiều tháng dữ liệu
+    """Tính data_confidence và missing_data_ratio từ nguồn đã kết nối."""
+    source_score = sum(SOURCE_WEIGHTS[k] for k, v in src_flags.items() if v)
     months_factor = min(months / 12.0, 1.0)
-    confidence = round(source_score * (0.7 + 0.3 * months_factor), 3)
-    missing    = round(1.0 - source_score, 3)
-    reliability = round(confidence * 0.95, 3)
+    confidence    = round(source_score * (0.7 + 0.3 * months_factor), 3)
+    missing       = round(1.0 - source_score, 3)
+    reliability   = round(confidence * 0.95, 3)
     return confidence, missing, reliability
 
 
@@ -215,7 +254,7 @@ def _bar_subscores(result):
         text=[f"{v:.0f}" for v in values], textposition="outside",
     ))
     fig.update_layout(
-        title="Điểm thành phần (0–100 mỗi nhóm)",
+        title="Điểm thành phần FlexiScore (0–100 mỗi nhóm)",
         yaxis=dict(range=[0, 115], showgrid=True, gridcolor="#eee"),
         plot_bgcolor="white", height=280,
         margin=dict(t=40, b=10, l=10, r=10),
@@ -248,24 +287,23 @@ def _gate_badge(status):
 def _build_sidebar(base: dict):
     p = base.copy()
     with st.sidebar:
-        st.markdown("### Hồ sơ đầu vào")
-        st.caption("Chọn ví dụ để nạp preset, sau đó chỉnh trực tiếp.")
+        st.markdown("### 🧾 Hồ sơ đầu vào")
+        st.caption("Chọn ví dụ để nạp preset, sau đó chỉnh trực tiếp bất kỳ tham số nào.")
 
         case_name = st.selectbox(
             "Ví dụ minh họa:", list(DEMO_CASES.keys()), key="case_select",
         )
-
         st.divider()
 
         # ══════════════════════════════════════════════════════════════════════
-        # ZONE A — RAW INPUTS (nhập tay thực sự)
+        # ZONE A — RAW INPUTS
         # ══════════════════════════════════════════════════════════════════════
         st.markdown(
             "<div style='background:#e3f2fd;border-left:4px solid #1565c0;"
-            "padding:6px 10px;border-radius:4px;margin-bottom:8px'>"
+            "padding:6px 10px;border-radius:4px;margin-bottom:6px'>"
             "<strong>ZONE A — Đầu vào thực sự</strong><br>"
-            "<span style='font-size:0.8em;color:#555'>"
-            "Bank officer nhập hoặc lấy từ eKYC / form đăng ký</span></div>",
+            "<span style='font-size:0.8em;color:#555'>eKYC / form đăng ký — nhập tay</span>"
+            "</div>",
             unsafe_allow_html=True,
         )
 
@@ -277,6 +315,10 @@ def _build_sidebar(base: dict):
             format_func=lambda x: TYPE_LABELS[x], index=ctype_idx,
         )
         p["age"] = st.slider("Tuổi", 18, 65, int(p.get("age", 30)), 1)
+        p["identity_verified"] = int(st.checkbox(
+            "Đã xác thực eKYC / định danh",
+            value=bool(p.get("identity_verified", 1)),
+        ))
 
         st.markdown("**Yêu cầu khoản vay**")
         p["requested_amount"] = st.number_input(
@@ -292,31 +334,73 @@ def _build_sidebar(base: dict):
         )
 
         # ══════════════════════════════════════════════════════════════════════
-        # ZONE B — FEATURE-ENGINEERED (auto-pull trong production)
+        # KEY SIGNALS (most impactful features, directly editable)
         # ══════════════════════════════════════════════════════════════════════
         st.divider()
         st.markdown(
             "<div style='background:#f3e5f5;border-left:4px solid #6a1b9a;"
-            "padding:6px 10px;border-radius:4px;margin-bottom:8px'>"
-            "<strong>ZONE B — Feature-engineered từ data sources</strong><br>"
-            "<span style='font-size:0.8em;color:#555'>"
-            "Production: auto-pull &amp; tính tự động. "
-            "Demo: chỉnh tay để mô phỏng.</span></div>",
+            "padding:6px 10px;border-radius:4px;margin-bottom:6px'>"
+            "<strong>Tín hiệu chính</strong><br>"
+            "<span style='font-size:0.8em;color:#555'>Các biến ảnh hưởng lớn nhất tới quyết định</span>"
+            "</div>",
             unsafe_allow_html=True,
         )
 
-        # ── B5 trước: Data Source Connections (ảnh hưởng data_confidence) ────
-        st.markdown("**B5 · Nguồn dữ liệu đã kết nối**")
-        st.caption("Tick = nguồn đã kết nối → tự động tính data_confidence")
-        src_platform = st.checkbox("📱 Grab / Shopee / Gojek API",  value=True, key="src_p")
-        src_bank     = st.checkbox("🏦 VietQR / Bank statement",    value=True, key="src_b")
-        src_utility  = st.checkbox("⚡ EVN / VNPT / Hóa đơn",       value=True, key="src_u")
-        src_graph    = st.checkbox("🕸 Neo4j Graph DB",              value=True, key="src_g")
+        p["avg_monthly_income"] = st.number_input(
+            "Thu nhập TB tháng (đ)  [avg_monthly_income]",
+            min_value=1_000_000, max_value=200_000_000,
+            value=int(p.get("avg_monthly_income", 10_000_000)),
+            step=500_000, format="%d",
+            help="= mean(monthly_inflows). Lấy từ VietQR / sao kê ngân hàng.",
+        )
+        p["income_cv"] = st.slider(
+            "Biến động thu nhập  [income_cv]",
+            0.0, 1.0, float(p.get("income_cv", 0.30)), 0.01,
+            help="std / mean của thu nhập tháng. Tốt: <0.30 | F1 fail: >0.55 | F0 fail: >0.75",
+        )
+        p["bill_on_time_ratio"] = st.slider(
+            "Thanh toán đúng hạn  [bill_on_time_ratio]",
+            0.0, 1.0, float(p.get("bill_on_time_ratio", 0.85)), 0.01,
+            help="Tỷ lệ hóa đơn trả đúng hạn. Tốt: >0.90. Lấy từ EVN / VNPT.",
+        )
+
+        st.markdown("**Graph Risk (Neo4j)**")
+        p["fraud_ring_flag"] = int(st.checkbox(
+            "Fraud ring flag  [fraud_ring_flag]",
+            value=bool(p.get("fraud_ring_flag", 0)),
+            help="Phát hiện liên kết với cụm gian lận. True → F0 FAIL ngay.",
+        ))
+        p["shared_device_count"] = st.slider(
+            "Hồ sơ dùng chung thiết bị  [shared_device_count]",
+            0, 10, int(p.get("shared_device_count", 0)), 1,
+            help=">=4 → F0 FAIL.",
+        )
+        p["bad_neighbor_count"] = st.slider(
+            "Liên kết hồ sơ nợ xấu  [bad_neighbor_count]",
+            0, 8, int(p.get("bad_neighbor_count", 0)), 1,
+            help=">=3 → F0 FAIL.",
+        )
+        p["graph_risk_score"] = st.slider(
+            "Điểm rủi ro graph  [graph_risk_score]",
+            0.0, 1.0, float(p.get("graph_risk_score", 0.20)), 0.01,
+            help=">0.70 → FRAUD_REVIEW hoặc FRAUD_REJECT.",
+        )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # DATA SOURCES → auto data_confidence
+        # ══════════════════════════════════════════════════════════════════════
+        st.divider()
+        st.markdown("**Nguồn dữ liệu đã kết nối**")
+        st.caption("Tick = nguồn kết nối → tự tính data_confidence")
+
+        src_platform = st.checkbox("📱 Grab / Shopee API",   value=True, key="src_p")
+        src_bank     = st.checkbox("🏦 VietQR / Bank",       value=True, key="src_b")
+        src_utility  = st.checkbox("⚡ EVN / VNPT",           value=True, key="src_u")
+        src_graph    = st.checkbox("🕸 Neo4j Graph DB",        value=True, key="src_g")
 
         data_months = st.slider(
             "Số tháng dữ liệu có sẵn", 0, 36,
             int(p.get("data_months_available", 12)), 1,
-            help="Tốt: >=6. Không auto approve nếu <3.",
         )
         p["data_months_available"] = data_months
 
@@ -331,22 +415,46 @@ def _build_sidebar(base: dict):
         p["missing_data_ratio"]       = miss
         p["source_reliability_score"] = rel
 
-        # ── B1 — Grab / Shopee API ────────────────────────────────────────────
-        with st.expander(
-            "B1 · 📱 Grab / Shopee API"
-            + (" ✅" if src_platform else " ❌ (không có dữ liệu)"),
-            expanded=src_platform,
-        ):
-            if not src_platform:
-                st.caption("Nguồn chưa kết nối — dùng giá trị mặc định trung tính.")
+        conf_color = (
+            "#c62828" if conf < 0.40 else
+            ("#f57c00" if conf < 0.60 else
+             ("#1565c0" if conf < 0.70 else "#1b5e20"))
+        )
+        st.markdown(
+            f"<div style='background:{conf_color}18;border:1px solid {conf_color};"
+            f"padding:6px 10px;border-radius:4px;margin:4px 0'>"
+            f"<strong style='color:{conf_color}'>Data confidence: {conf:.0%}</strong>"
+            f"<span style='color:#666;font-size:0.8em'> | Missing: {miss:.0%}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        hint = (
+            "❌ F0 FAIL — quá ít dữ liệu" if conf < 0.40 else
+            ("📚 Likely CREDIT_COACH" if conf < 0.60 else
+             ("✅ Đủ cho auto-approve" if conf >= 0.70 else
+              "🔍 Có thể HUMAN_REVIEW"))
+        )
+        st.caption(hint)
+
+        # ══════════════════════════════════════════════════════════════════════
+        # ADVANCED — tất cả các biến còn lại (B1–B4 detail)
+        # ══════════════════════════════════════════════════════════════════════
+        with st.expander("⚙️ Tham số nâng cao (B1–B4)", expanded=False):
+            st.caption(
+                "Production: các giá trị này được tính tự động từ API nguồn. "
+                "Demo: chỉnh tay để mô phỏng kịch bản."
+            )
+
+            # B1 — Grab / Shopee
+            st.markdown("**B1 · 📱 Grab / Shopee / Gojek API**"
+                        + (" ✅" if src_platform else " ❌"))
             p["platform_tenure_months"] = st.slider(
                 "Thâm niên nền tảng (tháng)",
                 0, 60, int(p.get("platform_tenure_months", 12)), 1,
-                help="Tốt: >6. Rủi ro: <4.",
                 disabled=not src_platform,
             )
             p["active_days_per_week"] = st.slider(
-                "Ngày tạo thu nhập / tuần  [active_days]",
+                "Ngày hoạt động / tuần  [active_days]",
                 0.0, 7.0, float(p.get("active_days_per_week", 5.0)), 0.5,
                 help="Gig tốt: >=5 ngày/tuần.",
                 disabled=not src_platform,
@@ -354,79 +462,62 @@ def _build_sidebar(base: dict):
             p["rating_avg"] = st.slider(
                 "Đánh giá TB nền tảng  [rating_avg]",
                 1.0, 5.0, float(p.get("rating_avg", 4.5)), 0.1,
-                help="Tốt: >4.5.",
                 disabled=not src_platform,
             )
             p["cancel_rate"] = st.slider(
                 "Tỷ lệ hủy đơn  [cancel_rate]",
                 0.0, 0.5, float(p.get("cancel_rate", 0.05)), 0.01,
-                help="Rủi ro: >0.20.",
                 disabled=not src_platform,
             )
             p["completion_rate"] = st.slider(
                 "Tỷ lệ hoàn thành  [completion_rate]",
                 0.0, 1.0, float(p.get("completion_rate", 0.90)), 0.01,
-                help="Tốt: >0.90.",
+                disabled=not src_platform,
+            )
+            p["order_frequency"] = st.slider(
+                "Tần suất đơn hàng / ngày  [order_frequency]",
+                0.0, 15.0, float(p.get("order_frequency", 4.0)), 0.5,
+                disabled=not src_platform,
+            )
+            p["repeat_customer_ratio"] = st.slider(
+                "Tỷ lệ khách quay lại  [repeat_customer_ratio]",
+                0.0, 1.0, float(p.get("repeat_customer_ratio", 0.5)), 0.01,
                 disabled=not src_platform,
             )
             p["seller_revenue_growth"] = st.slider(
                 "Tăng trưởng doanh thu  [seller_revenue_growth]",
                 -0.5, 1.0, float(p.get("seller_revenue_growth", 0.0)), 0.01,
-                help="Ổn định / dương là tốt.",
                 disabled=not src_platform,
             )
             p["refund_rate"] = st.slider(
                 "Tỷ lệ hoàn đơn  [refund_rate]",
                 0.0, 0.5, float(p.get("refund_rate", 0.0)), 0.01,
-                help="Tốt: <0.10. Rủi ro: >0.25.",
                 disabled=not src_platform,
             )
 
-        # ── B2 — VietQR / Bank ────────────────────────────────────────────────
-        with st.expander(
-            "B2 · 🏦 VietQR / Bank transactions"
-            + (" ✅" if src_bank else " ❌ (không có dữ liệu)"),
-            expanded=src_bank,
-        ):
-            if not src_bank:
-                st.caption("Nguồn chưa kết nối — thu nhập và dòng tiền không xác thực được.")
-            p["avg_monthly_income"] = st.number_input(
-                "Thu nhập TB tháng  [avg_monthly_income] (đ)",
-                min_value=1_000_000, max_value=200_000_000,
-                value=int(p.get("avg_monthly_income", 10_000_000)),
-                step=500_000, format="%d",
-                help="= mean(monthly_inflows) từ transaction history.",
-                disabled=not src_bank,
-            )
-            p["income_cv"] = st.slider(
-                "Biến động thu nhập  [income_cv]",
-                0.0, 1.0, float(p.get("income_cv", 0.3)), 0.01,
-                help="= std(monthly_income) / mean(monthly_income). "
-                     "Tốt: <0.30. >0.55 → F1 fail. >0.75 → F0 fail.",
-                disabled=not src_bank,
-            )
+            st.divider()
+            # B2 — VietQR / Bank
+            st.markdown("**B2 · 🏦 VietQR / Bank transactions**"
+                        + (" ✅" if src_bank else " ❌"))
             p["cashflow_drop_30d"] = st.slider(
                 "Sụt giảm dòng tiền 30 ngày  [cashflow_drop_30d]",
                 0.0, 0.9, float(p.get("cashflow_drop_30d", 0.0)), 0.01,
-                help="= (baseline_income − last30d) / baseline. Cảnh báo: >0.30.",
+                help="Cảnh báo: >0.30. Lấy từ bank transactions.",
                 disabled=not src_bank,
             )
             p["monthly_inflow_count"] = st.slider(
-                "Số giao dịch tiền vào / tháng  [monthly_inflow_count]",
+                "Số giao dịch vào / tháng  [monthly_inflow_count]",
                 1, 200, int(p.get("monthly_inflow_count", 20)), 1,
-                help="= count(inflow_txns) / months.",
                 disabled=not src_bank,
             )
             p["expense_to_income_ratio"] = st.slider(
                 "Chi tiêu / thu nhập  [expense_to_income_ratio]",
                 0.1, 1.0, float(p.get("expense_to_income_ratio", 0.6)), 0.01,
-                help="= sum(outflows) / sum(inflows). Tốt: <0.60.",
                 disabled=not src_bank,
             )
             p["monthly_surplus_ratio"] = st.slider(
-                "Tỷ lệ dòng tiền dư  [monthly_surplus_ratio]",
+                "Tỷ lệ thặng dư tháng  [monthly_surplus_ratio]",
                 0.0, 0.9, float(p.get("monthly_surplus_ratio", 0.3)), 0.01,
-                help="= (inflows − outflows) / inflows. Tốt: >0.25.",
                 disabled=not src_bank,
             )
             p["saving_buffer"] = st.number_input(
@@ -434,127 +525,84 @@ def _build_sidebar(base: dict):
                 min_value=0, max_value=500_000_000,
                 value=int(p.get("saving_buffer", 3_000_000)),
                 step=500_000, format="%d",
-                help="Current balance hoặc cumulative surplus.",
                 disabled=not src_bank,
             )
             p["wallet_activity_consistency"] = st.slider(
                 "Độ đều hoạt động ví  [wallet_activity_consistency]",
                 0.0, 1.0, float(p.get("wallet_activity_consistency", 0.7)), 0.01,
-                help="= 1 − std(weekly_tx_count)/mean(weekly_tx_count). Tốt: >0.75.",
                 disabled=not src_bank,
             )
 
-        # ── B3 — EVN / VNPT ───────────────────────────────────────────────────
-        with st.expander(
-            "B3 · ⚡ EVN / VNPT / Hóa đơn"
-            + (" ✅" if src_utility else " ❌ (không có dữ liệu)"),
-            expanded=False,
-        ):
-            if not src_utility:
-                st.caption("Nguồn chưa kết nối — kỷ luật thanh toán không xác thực được.")
-            p["bill_on_time_ratio"] = st.slider(
-                "Tỷ lệ thanh toán đúng hạn  [bill_on_time_ratio]",
-                0.0, 1.0, float(p.get("bill_on_time_ratio", 0.85)), 0.01,
-                help="= on_time_count / total_bills. Tốt: >0.90.",
-                disabled=not src_utility,
-            )
+            st.divider()
+            # B3 — EVN / VNPT
+            st.markdown("**B3 · ⚡ EVN / VNPT / Hóa đơn**"
+                        + (" ✅" if src_utility else " ❌"))
             p["utility_payment_delay"] = st.slider(
-                "Số ngày trễ hóa đơn điện/nước  [utility_payment_delay]",
+                "Số ngày trễ hóa đơn  [utility_payment_delay]",
                 0, 30, int(p.get("utility_payment_delay", 0)), 1,
-                help="= mean(payment_date − due_date). Tốt: 0–2. Rủi ro: >7.",
                 disabled=not src_utility,
             )
             p["late_payment_count_6m"] = st.slider(
                 "Số lần trễ trong 6 tháng  [late_payment_count_6m]",
                 0, 12, int(p.get("late_payment_count_6m", 0)), 1,
-                help="= count(payments where delay > 0) in 6 months. Tốt: 0–1.",
                 disabled=not src_utility,
             )
             p["avg_payment_delay_days"] = st.slider(
                 "Số ngày trễ trung bình  [avg_payment_delay_days]",
                 0.0, 30.0, float(p.get("avg_payment_delay_days", 0.0)), 0.5,
-                help="= mean(delay_days) across all late payments. Tốt: <3.",
                 disabled=not src_utility,
             )
 
-        # ── B4 — Graph DB (Neo4j) ─────────────────────────────────────────────
-        with st.expander(
-            "B4 · 🕸 Neo4j Graph DB"
-            + (" ✅" if src_graph else " ❌ (không có dữ liệu)"),
-            expanded=src_graph,
-        ):
-            if not src_graph:
-                st.caption("Nguồn chưa kết nối — rủi ro mạng lưới không phân tích được.")
-            p["fraud_ring_flag"] = int(st.checkbox(
-                "Fraud ring flag — thuộc cụm gian lận  [fraud_ring_flag]",
-                value=bool(p.get("fraud_ring_flag", 0)),
-                help="True → F0 FAIL → AUTO_REJECT ngay.",
-                disabled=not src_graph,
-            ))
-            p["shared_device_count"] = st.slider(
-                "Hồ sơ dùng chung thiết bị  [shared_device_count]",
-                0, 10, int(p.get("shared_device_count", 0)), 1,
-                help="MATCH (u)-[:SHARES_DEVICE]-(o). >=4 → F0 FAIL.",
-                disabled=not src_graph,
-            )
+            st.divider()
+            # B4 — Graph DB remaining fields
+            st.markdown("**B4 · 🕸 Neo4j Graph DB (thêm)**"
+                        + (" ✅" if src_graph else " ❌"))
             p["shared_ip_count"] = st.slider(
                 "Hồ sơ dùng chung IP  [shared_ip_count]",
                 0, 15, int(p.get("shared_ip_count", 0)), 1,
-                help="MATCH (u)-[:SHARES_IP]-(o). Cảnh báo khi cao.",
-                disabled=not src_graph,
-            )
-            p["bad_neighbor_count"] = st.slider(
-                "Liên kết hồ sơ nợ xấu  [bad_neighbor_count]",
-                0, 8, int(p.get("bad_neighbor_count", 0)), 1,
-                help="Graph traversal 1–3 hops tới fraud nodes. >=3 → F0 FAIL.",
                 disabled=not src_graph,
             )
             p["circular_transaction_ratio"] = st.slider(
                 "Tỷ lệ giao dịch vòng  [circular_transaction_ratio]",
                 0.0, 0.9, float(p.get("circular_transaction_ratio", 0.02)), 0.01,
-                help="= cycles / total_transactions. Cảnh báo: >0.20.",
                 disabled=not src_graph,
             )
             p["trust_score"] = st.slider(
-                "Điểm tin cậy mạng lưới  [trust_score]  (PageRank)",
+                "Điểm tin cậy mạng lưới  [trust_score]",
                 0.0, 1.0, float(p.get("trust_score", 0.70)), 0.01,
-                help="PageRank trên transaction graph. Càng cao càng tốt.",
-                disabled=not src_graph,
-            )
-            p["graph_risk_score"] = st.slider(
-                "Điểm rủi ro graph  [graph_risk_score]",
-                0.0, 1.0, float(p.get("graph_risk_score", 0.20)), 0.01,
-                help="Composite từ graph features. >0.70 → Fraud Review.",
                 disabled=not src_graph,
             )
 
-        # ── B5 summary (read-only) ────────────────────────────────────────────
         st.divider()
-        conf_color = (
-            "#c62828" if conf < 0.40 else
-            ("#f57c00" if conf < 0.60 else
-             ("#1565c0" if conf < 0.70 else "#1b5e20"))
-        )
-        st.markdown(
-            f"<div style='background:{conf_color}15;border:1px solid {conf_color};"
-            f"padding:8px 12px;border-radius:6px'>"
-            f"<strong style='color:{conf_color}'>Data confidence (auto): {conf:.0%}</strong><br>"
-            f"<span style='font-size:0.8em'>Missing ratio: {miss:.0%} &nbsp;|&nbsp; "
-            f"Source reliability: {rel:.0%}</span></div>",
-            unsafe_allow_html=True,
-        )
-        hint = (
-            "❌ F0 FAIL — quá ít dữ liệu" if conf < 0.40 else
-            ("📚 → CREDIT_COACH (cần kết nối thêm nguồn)" if conf < 0.60 else
-             ("✅ Đủ cho AUTO_APPROVE" if conf >= 0.70 else
-              "🔍 Có thể HUMAN_REVIEW"))
-        )
-        st.caption(hint)
-
-        st.divider()
-        run = st.button("Chạy FlexiScore Pipeline", use_container_width=True, type="primary")
+        run = st.button("▶ Chạy FlexiScore Pipeline", use_container_width=True, type="primary")
 
     return case_name, p, run
+
+
+# ── Offer table helper ────────────────────────────────────────────────────────
+def _show_offer_table(rec, compact=False):
+    if rec is None:
+        return
+    if compact:
+        st.markdown(
+            f"**Offer: {rec.label}** &nbsp;·&nbsp; "
+            f"{rec.amount/1e6:.1f}M / {rec.tenor_months}T &nbsp;·&nbsp; "
+            f"EP = +{rec.expected_profit:,.0f}đ"
+        )
+        return
+    st.table(pd.DataFrame({
+        "": ["Offer", "Số tiền", "Kỳ hạn", "Lịch trả",
+             "Lãi suất", "Góp ước tính", "Expected Profit (NH)"],
+        "Giá trị": [
+            rec.label,
+            f"{rec.amount:,.0f} đ",
+            f"{rec.tenor_months} tháng",
+            rec.schedule,
+            f"{rec.interest_rate:.0%} / năm",
+            f"{rec.monthly_payment:,.0f} đ / lần",
+            f"+{rec.expected_profit:,.0f} đ",
+        ],
+    }).set_index(""))
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -564,6 +612,7 @@ def main():
         layout="wide", initial_sidebar_state="expanded",
     )
 
+    # ── Header ────────────────────────────────────────────────────────────────
     st.markdown(
         "<h1 style='text-align:center;color:#1565c0;margin-bottom:2px'>💳 FlexiScore</h1>"
         "<p style='text-align:center;color:#666;font-size:1em;margin-top:0'>"
@@ -571,6 +620,16 @@ def main():
         " &nbsp;·&nbsp; Risk-first &nbsp;·&nbsp; Cash-flow optimised &nbsp;·&nbsp; Explainable"
         "</p>",
         unsafe_allow_html=True,
+    )
+
+    # ── Disclaimer banner ─────────────────────────────────────────────────────
+    st.info(
+        "**Prototype minh họa — Không phải hệ thống vận hành.**  "
+        "Dashboard này dùng để minh họa logic mô hình FlexiScore chạy end-to-end. "
+        "Dữ liệu hoàn toàn giả lập (synthetic). "
+        "Mọi quyết định được tính thuần túy từ giá trị các tham số — "
+        "không hard-code theo tên use-case.",
+        icon="ℹ️",
     )
     st.divider()
 
@@ -588,12 +647,12 @@ def main():
         st.session_state["last_case"] = case_name
         st.rerun()
 
-    # Pipeline
+    # ── Pipeline ──────────────────────────────────────────────────────────────
     if run_clicked or "result" not in st.session_state:
-        from decision_engine import make_decision
+        from decision_engine import run_flexiscore_pipeline
         from explainability import generate_reason_codes
         with st.spinner("Đang chạy pipeline..."):
-            result  = make_decision(customer, model)
+            result  = run_flexiscore_pipeline(customer, model)
             explain = generate_reason_codes(customer, result)
         st.session_state.update(
             result=result, explain=explain, customer=customer,
@@ -604,50 +663,57 @@ def main():
         customer = st.session_state["customer"]
 
     decision = result["decision"]
-    dmeta    = DECISIONS.get(decision, DECISIONS["HUMAN_REVIEW"])
+    # Fallback: map old 4-decision names if they somehow appear
+    _compat = {"AUTO_REJECT": "FRAUD_REJECT"}
+    dmeta   = DECISIONS.get(_compat.get(decision, decision), DECISIONS["HUMAN_REVIEW"])
 
-    # Banner
-    d_color, d_emoji = dmeta["color"], dmeta["emoji"]
-    d_label, d_desc  = dmeta["label"], dmeta["desc"]
+    # ── Decision banner ───────────────────────────────────────────────────────
+    d_color = dmeta["color"]
+    d_emoji = dmeta["emoji"]
+    d_label = dmeta["label"]
+    d_desc  = dmeta["desc"]
     st.markdown(
         f"<div style='background:{d_color};color:white;padding:16px 24px;"
         f"border-radius:10px;margin-bottom:18px'>"
         f"<span style='font-size:1.5em'>{d_emoji}</span>&nbsp;&nbsp;"
-        f"<strong style='font-size:1.2em'>{d_label}</strong><br>"
+        f"<strong style='font-size:1.2em'>{d_label}</strong>&nbsp;&nbsp;"
+        f"<code style='background:rgba(255,255,255,0.2);padding:2px 8px;"
+        f"border-radius:4px;font-size:0.9em'>{decision}</code><br>"
         f"<span style='font-size:0.9em;opacity:0.9'>{d_desc}</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
 
-    # Metric strip
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("FlexiScore", f"{result['flexiscore']:.0f} / 1000",
+    # ── Key metrics strip ─────────────────────────────────────────────────────
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("FlexiScore",    f"{result['flexiscore']:.0f} / 1000",
               delta=result["risk_tier"], delta_color="off")
-    c2.metric("PD", f"{result['pd']:.1%}",
+    m2.metric("PD (ML)",       f"{result['pd']:.1%}",
               delta=result["pd_band"], delta_color="off")
-    c3.metric("F0 Hard Rules", _gate_badge(result["f0_status"]))
-    c4.metric("F1 Stress Test", _gate_badge(result["f1_status"]))
+    m3.metric("Graph Risk",    f"{result['graph_risk_score']:.2f}",
+              delta=result["graph_risk_label"], delta_color="off")
+    m4.metric("F0 Hard Rules", _gate_badge(result["f0_status"]))
+    m5.metric("F1 Stress Test",_gate_badge(result["f1_status"]))
 
-    # Data confidence indicator
-    conf    = customer.get("data_confidence", 1.0)
-    n_srcs  = sum([
+    n_srcs   = sum([
         st.session_state.get("src_p", True),
         st.session_state.get("src_b", True),
         st.session_state.get("src_u", True),
         st.session_state.get("src_g", True),
     ])
     conf_bar = "🟢" * n_srcs + "⬜" * (4 - n_srcs)
+    conf_val = customer.get("data_confidence", 1.0)
     st.caption(
-        f"Data confidence: **{conf:.0%}** &nbsp;|&nbsp; "
-        f"Nguồn kết nối: {conf_bar} ({n_srcs}/4)"
+        f"Data confidence: **{conf_val:.0%}** &nbsp;|&nbsp; "
+        f"Nguồn: {conf_bar} ({n_srcs}/4) &nbsp;|&nbsp; "
+        f"DTI stress: **{result.get('dti_stress_ratio', 0):.1%}** *(ngưỡng 35%)*"
     )
-
     st.divider()
 
-    # Two-column layout
+    # ── Two-column layout ─────────────────────────────────────────────────────
     left, right = st.columns([1, 1], gap="large")
 
-    # ── Customer view ─────────────────────────────────────────────────────────
+    # ── LEFT: Customer View ───────────────────────────────────────────────────
     with left:
         st.subheader("👤 Customer View")
         ctype_label = TYPE_LABELS.get(result["customer_type"], result["customer_type"])
@@ -655,72 +721,85 @@ def main():
             f"| | |\n|--|--|\n"
             f"| **Tên** | {result['name']} |\n"
             f"| **Loại KH** | {ctype_label} |\n"
-            f"| **Thu nhập TB** | {customer['avg_monthly_income']:,.0f} đ / tháng |\n"
-            f"| **Yêu cầu vay** | {customer['requested_amount']:,.0f} đ / "
-            f"{customer['requested_tenor_months']} tháng |\n"
+            f"| **Thu nhập TB** | {customer.get('avg_monthly_income', 0):,.0f} đ / tháng |\n"
+            f"| **Yêu cầu vay** | {customer.get('requested_amount', 0):,.0f} đ / "
+            f"{customer.get('requested_tenor_months', 0)} tháng |\n"
             f"| **Risk tier** | {result['risk_tier']} |"
         )
         st.divider()
 
-        if decision == "AUTO_APPROVE":
-            st.success("Chúc mừng! Khoản vay được phê duyệt tự động.")
+        # Decision-specific customer message
+        if decision in ("AUTO_APPROVE", "APPROVE_WITH_OPTIMIZED_OFFER"):
+            if decision == "AUTO_APPROVE":
+                st.success("Chúc mừng! Khoản vay được phê duyệt tự động.")
+            else:
+                st.success(
+                    "Khoản vay được phê duyệt với offer được tối ưu hóa. "
+                    "Hệ thống đã chọn cấu trúc tốt nhất cho bạn."
+                )
             rec = result.get("recommended_offer")
             if rec:
                 st.markdown(f"**Offer đề xuất — {rec.label}**")
-                st.table(pd.DataFrame({
-                    "": ["Số tiền", "Kỳ hạn", "Lịch trả",
-                         "Lãi suất", "Góp ước tính", "Expected Profit (NH)"],
-                    "Giá trị": [
-                        f"{rec.amount:,.0f} đ",
-                        f"{rec.tenor_months} tháng",
-                        rec.schedule,
-                        f"{rec.interest_rate:.0%} / năm",
-                        f"{rec.monthly_payment:,.0f} đ / lần",
-                        f"+{rec.expected_profit:,.0f} đ",
-                    ],
-                }).set_index(""))
+                _show_offer_table(rec)
 
-        elif decision == "AUTO_REJECT":
-            st.error("Hồ sơ không đủ điều kiện xử lý.")
-            st.markdown("Bạn có quyền yêu cầu cán bộ tín dụng xem xét lại.")
-            for r in result["reason_codes"]:
+        elif decision == "FRAUD_REJECT":
+            st.error(
+                "Hồ sơ bị từ chối do phát hiện rủi ro gian lận nghiêm trọng (F0 FAIL). "
+                "Pipeline ML không chạy. Vui lòng liên hệ cán bộ tín dụng để được giải thích."
+            )
+            for r in result.get("reason_codes", []):
+                st.markdown(f"- {r}")
+
+        elif decision == "FRAUD_REVIEW":
+            st.warning(
+                "Hồ sơ vi phạm quy tắc cứng và cần được xác minh thủ công trước khi tiếp tục xử lý. "
+                "Chúng tôi sẽ liên hệ trong 1–3 ngày làm việc."
+            )
+            for r in result.get("reason_codes", []):
                 st.markdown(f"- {r}")
 
         elif decision == "CREDIT_COACH":
-            st.warning("Hồ sơ chưa đủ điều kiện — nhưng bạn có thể cải thiện!")
+            st.warning("Hồ sơ chưa đủ điều kiện phê duyệt lần này — nhưng bạn có thể cải thiện!")
             plan = result.get("credit_coach_plan", [])
             if plan:
-                st.markdown(f"**{plan[0]}**")
-                for item in plan[1:]:
+                st.markdown("**Lộ trình cải thiện 90 ngày:**")
+                for item in plan:
                     st.markdown(f"- {item}")
 
         elif decision == "HUMAN_REVIEW":
             st.info(
                 "Hồ sơ đang được chuyển sang thẩm định thêm.\n\n"
-                "Phản hồi dự kiến trong 1–2 ngày làm việc."
+                "Cán bộ tín dụng sẽ liên hệ trong 1–2 ngày làm việc."
             )
             rec = result.get("recommended_offer")
             if rec and rec.ep_positive:
-                st.markdown(
-                    f"Cán bộ tín dụng sẽ xem xét offer tiềm năng: "
-                    f"**{rec.amount/1e6:.1f}M / {rec.tenor_months}T**."
-                )
+                _show_offer_table(rec, compact=True)
+            for r in result.get("reason_codes", []):
+                st.markdown(f"- {r}")
+
+        elif decision == "REJECT_EP_NEGATIVE":
+            st.error(
+                "Không tìm được cấu trúc khoản vay nào có Expected Profit dương. "
+                "Khuyến nghị: giảm số tiền vay hoặc rút ngắn kỳ hạn và nộp lại."
+            )
+            for r in result.get("reason_codes", []):
+                st.markdown(f"- {r}")
 
         st.divider()
         pos = explain.get("positive_factors", [])
         neg = explain.get("negative_factors", [])
         if pos:
             st.markdown("**Điểm mạnh hồ sơ**")
-            for f in pos[:8]:
+            for f in pos[:6]:
                 st.markdown(f)
         if neg:
             st.markdown("**Cần cải thiện**")
-            for f in neg[:8]:
+            for f in neg[:6]:
                 st.markdown(f)
 
-    # ── Bank / Risk view ──────────────────────────────────────────────────────
+    # ── RIGHT: Model / Risk View ──────────────────────────────────────────────
     with right:
-        st.subheader("🏦 Bank / Risk View")
+        st.subheader("🏦 Model / Risk View")
 
         st.plotly_chart(
             _gauge(result["flexiscore"], 1000, "FlexiScore (0–1000)", color="#1565c0"),
@@ -730,9 +809,8 @@ def main():
         gr_label = result.get("graph_risk_label", "LOW")
         gr_color = ("#c62828" if gr_label == "HIGH"
                     else ("#f57c00" if gr_label == "MEDIUM" else "#2e7d32"))
-
-        gcol1, gcol2 = st.columns(2)
-        with gcol1:
+        g1, g2 = st.columns(2)
+        with g1:
             st.plotly_chart(
                 _gauge(
                     result["graph_risk_score"] * 100, 100, "Graph Risk (%)",
@@ -742,7 +820,7 @@ def main():
                            {"range":[70,100],"color":"#ffebee"}],
                 ), use_container_width=True,
             )
-        with gcol2:
+        with g2:
             st.plotly_chart(
                 _gauge(
                     result["trust_score"] * 100, 100, "Trust Score (%)",
@@ -759,22 +837,26 @@ def main():
 
         st.plotly_chart(_bar_subscores(result), use_container_width=True)
 
+        # EP Offer comparison
         offers = result.get("offers", [])
         if offers:
-            st.markdown("**So sánh Loan Offers**")
-            rec_label = result["recommended_offer"].label if result["recommended_offer"] else ""
+            st.markdown("**So sánh 3 Loan Offers**")
+            rec_label = (result["recommended_offer"].label
+                         if result.get("recommended_offer") else "")
             rows = [{
-                "Offer":    o.label + (" ⭐" if o.label == rec_label else ""),
-                "Số tiền": f"{o.amount/1e6:.1f}M",
-                "Kỳ hạn":  f"{o.tenor_months}T",
-                "Lịch":    o.schedule,
-                "EP":      f"{o.expected_profit/1_000:,.0f}K đ",
-                "OK?":     "✅" if o.ep_positive else "❌",
+                "Offer":     o.label + (" ⭐" if o.label == rec_label else ""),
+                "Số tiền":  f"{o.amount/1e6:.1f}M",
+                "Kỳ hạn":   f"{o.tenor_months}T",
+                "Lịch trả": o.schedule,
+                "EP (đ)":   f"{o.expected_profit/1_000:,.0f}K",
+                "Khả thi":  "✅" if o.ep_positive else "❌",
             } for o in offers]
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
             st.plotly_chart(_ep_chart(offers), use_container_width=True)
+        else:
+            st.info("Không tính EP — hồ sơ bị chặn ở F0.")
 
-    # ── Bottom expanders ──────────────────────────────────────────────────────
+    # ── Bottom detail expanders ───────────────────────────────────────────────
     st.divider()
     b1, b2, b3 = st.columns(3)
     with b1:
@@ -785,7 +867,8 @@ def main():
         with st.expander("🛡 F0 Hard Rules — Chi tiết"):
             f0r = result.get("f0_reasons", [])
             if f0r:
-                for r in f0r: st.markdown(f"- {r}")
+                for r in f0r:
+                    st.markdown(f"- {r}")
             else:
                 st.success("Không có vi phạm F0.")
     with b3:
@@ -794,7 +877,8 @@ def main():
             st.markdown(f"**DTI stress:** {dti:.1%}  *(ngưỡng 35%)*")
             f1r = result.get("f1_reasons", [])
             if f1r:
-                for r in f1r: st.markdown(f"- {r}")
+                for r in f1r:
+                    st.markdown(f"- {r}")
             else:
                 st.success("Không có vi phạm F1.")
 
@@ -808,14 +892,25 @@ def main():
         else:
             st.info("Model load từ cache.")
         st.caption(
-            "AUTO_APPROVE: FlexiScore ≥ 700 · PD < 15% · data_confidence ≥ 70% · EP > 0  |  "
-            "CREDIT_COACH: F1 fail (income_cv > 0.55 hoặc DTI > 35%) hoặc data_confidence < 60%  |  "
-            "AUTO_REJECT: F0 fail  |  HUMAN_REVIEW: còn lại"
+            "**Decision thresholds (synthetic, cần calibrate trên dữ liệu thật):** &nbsp;|&nbsp; "
+            "AUTO_APPROVE: FlexiScore ≥ 800 · PD < 10% · data_confidence ≥ 70% · EP > 0 &nbsp;|&nbsp; "
+            "APPROVE_WITH_OPTIMIZED_OFFER: FlexiScore ≥ 600 · EP > 0 · conf ≥ 70% &nbsp;|&nbsp; "
+            "CREDIT_COACH: F1 fail (income_cv > 0.55 | DTI > 35%) hoặc conf < 60% &nbsp;|&nbsp; "
+            "FRAUD_REJECT/REVIEW: F0 fail (fraud_ring | device≥4 | bad_neighbor≥3 | income_cv>0.75)"
+        )
+        st.info(
+            "Model dự đoán PD (Probability of Default) bằng LightGBM (fallback: GradientBoosting) "
+            "huấn luyện trên 3.000 bản ghi tổng hợp. Ngưỡng quyết định cần calibrate lại "
+            "khi triển khai với dữ liệu thật.",
+            icon="🔬",
         )
 
+    # ── Footer ────────────────────────────────────────────────────────────────
     st.markdown(
-        "<p style='text-align:center;color:#aaa;font-size:0.78em;margin-top:16px'>"
-        "FlexiScore Demo — Dữ liệu giả lập, không phải dữ liệu thật của SHB.</p>",
+        "<p style='text-align:center;color:#aaa;font-size:0.78em;margin-top:20px'>"
+        "FlexiScore Demo · Dữ liệu 100% giả lập · Không phải sản phẩm vận hành · "
+        "Mọi quyết định tính từ giá trị tham số, không hard-code theo use-case."
+        "</p>",
         unsafe_allow_html=True,
     )
 
