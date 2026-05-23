@@ -22,7 +22,6 @@ DEMO_CASES = {
         "customer_id": "DEMO_001", "name": "Nguyễn Văn A",
         "customer_type": "gig_worker", "age": 32,
         "platform_tenure_months": 18, "data_months_available": 18,
-        "identity_verified": 1,
         "avg_monthly_income": 15_000_000, "income_cv": 0.15,
         "cashflow_drop_30d": 0.00, "active_days_per_week": 6.0,
         "monthly_inflow_count": 48, "expense_to_income_ratio": 0.55,
@@ -45,7 +44,6 @@ DEMO_CASES = {
         "customer_id": "DEMO_002", "name": "Trần Thị B",
         "customer_type": "seller_online", "age": 28,
         "platform_tenure_months": 24, "data_months_available": 20,
-        "identity_verified": 1,
         "avg_monthly_income": 25_000_000, "income_cv": 0.20,
         "cashflow_drop_30d": 0.05, "active_days_per_week": 6.0,
         "monthly_inflow_count": 120, "expense_to_income_ratio": 0.55,
@@ -68,7 +66,6 @@ DEMO_CASES = {
         "customer_id": "DEMO_003", "name": "Lê Văn C",
         "customer_type": "freelancer", "age": 26,
         "platform_tenure_months": 8, "data_months_available": 6,
-        "identity_verified": 1,
         "avg_monthly_income": 12_000_000, "income_cv": 0.65,
         "cashflow_drop_30d": 0.42, "active_days_per_week": 3.5,
         "monthly_inflow_count": 8, "expense_to_income_ratio": 0.72,
@@ -91,7 +88,6 @@ DEMO_CASES = {
         "customer_id": "DEMO_004", "name": "Nguyễn Thị D",
         "customer_type": "small_merchant", "age": 35,
         "platform_tenure_months": 10, "data_months_available": 9,
-        "identity_verified": 1,
         "avg_monthly_income": 18_000_000, "income_cv": 0.38,
         "cashflow_drop_30d": 0.18, "active_days_per_week": 5.0,
         "monthly_inflow_count": 30, "expense_to_income_ratio": 0.65,
@@ -266,10 +262,6 @@ def _build_sidebar(base: dict) -> dict:
             p["age"] = st.slider(
                 "Tuổi", 18, 65, int(p.get("age", 30)), 1,
             )
-            p["identity_verified"] = int(st.checkbox(
-                "Đã xác thực eKYC / định danh",
-                value=bool(p.get("identity_verified", 1)),
-            ))
             p["platform_tenure_months"] = st.slider(
                 "Thâm niên nền tảng (tháng)",
                 0, 60, int(p.get("platform_tenure_months", 12)), 1,
