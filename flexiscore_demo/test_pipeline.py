@@ -1,14 +1,10 @@
 """
-test_pipeline.py — FlexiScore end-to-end tests.
+test_pipeline.py — FlexiScore end-to-end tests (4 quyết định).
 
-Decision types under test:
-  AUTO_APPROVE               — score>=800, PD<10%, conf>=70%, EP>0
-  FRAUD_REJECT               — F0 fail + fraud_ring or graph_risk>0.70
-  FRAUD_REVIEW               — F0 fail (other hard rule, e.g. income_cv>0.75)
-  CREDIT_COACH               — F1 fail (income_cv>0.55 or DTI>35%)
-  CREDIT_COACH (low conf)    — data_confidence < 60%
-  HUMAN_REVIEW               — borderline score / conf / graph risk
-  Demo-case verification     — 4 preset scenarios, decisions purely value-driven
+  AUTO_REJECT  — F0 fail (bất kỳ vi phạm)
+  CREDIT_COACH — F0 pass nhưng F1 fail hoặc data_confidence < 60%
+  AUTO_APPROVE — FlexiScore≥700, PD<10%, conf≥70%, EP>0
+  HUMAN_REVIEW — Vùng xám (pass gates nhưng chưa đủ auto-approve)
 """
 import sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -21,9 +17,9 @@ print("Loading model...")
 df = generate_dataset()
 model, _ = load_or_train(df)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
 def _base():
-    """Clean base profile — expected outcome: AUTO_APPROVE."""
+    """Hồ sơ cơ bản tốt — baseline cho các test."""
     return {
         "customer_id": "TEST", "name": "Test", "customer_type": "gig_worker",
         "avg_monthly_income": 15_000_000, "income_cv": 0.15,
@@ -49,92 +45,83 @@ def _run(label, customer):
     r = run_flexiscore_pipeline(customer, model)
     print(
         f"\n[{label}]"
-        f"\n  FlexiScore={r['flexiscore']:.0f}  PD={r['pd']:.2%}"
+        f"  Score={r['flexiscore']:.0f}  PD={r['pd']:.1%}"
         f"  F0={r['f0_status']}  F1={r['f1_status']}"
-        f"  graph_risk={r['graph_risk_score']:.2f}"
-        f"  data_conf={customer.get('data_confidence',1):.0%}"
-        f"\n  => DECISION: {r['decision']}"
+        f"  conf={customer.get('data_confidence',1):.0%}"
+        f"  => {r['decision']}"
     )
     return r
 
 
-def _assert(r, expected, label):
+def _ok(r, expected, label):
     if r["decision"] == expected:
-        print(f"  PASS")
+        print("  PASS")
     else:
-        raise AssertionError(
-            f"[{label}] Expected {expected}, got {r['decision']}\n"
-            f"  reasons: {r.get('reason_codes', [])[:3]}"
-        )
+        raise AssertionError(f"[{label}] Expected {expected}, got {r['decision']}")
 
 
 # ── Test 1: AUTO_APPROVE ──────────────────────────────────────────────────────
-r = _run("AUTO_APPROVE", _base())
-_assert(r, "AUTO_APPROVE", "Test 1")
-assert r["recommended_offer"] is not None, "AUTO_APPROVE must have an offer"
+r = _run("AUTO_APPROVE — base sạch", _base())
+_ok(r, "AUTO_APPROVE", "T1")
+assert r["recommended_offer"] is not None
 
-# ── Test 2: FRAUD_REJECT (fraud_ring + high graph_risk) ──────────────────────
-c = {**_base(),
-     "fraud_ring_flag": 1, "shared_device_count": 4,
-     "bad_neighbor_count": 3, "trust_score": 0.28, "graph_risk_score": 0.91}
-r = _run("FRAUD_REJECT — fraud ring + high graph risk", c)
-_assert(r, "FRAUD_REJECT", "Test 2")
+# ── Test 2: AUTO_REJECT — fraud ring ─────────────────────────────────────────
+r = _run("AUTO_REJECT — fraud_ring=1", {
+    **_base(),
+    "fraud_ring_flag": 1, "shared_device_count": 4, "bad_neighbor_count": 3,
+})
+_ok(r, "AUTO_REJECT", "T2")
 
-# ── Test 3: FRAUD_REVIEW (income_cv F0 — no fraud ring) ──────────────────────
-c = {**_base(), "income_cv": 0.80}
-r = _run("FRAUD_REVIEW — income_cv=0.80 (>0.75), no fraud ring", c)
-_assert(r, "FRAUD_REVIEW", "Test 3")
+# ── Test 3: AUTO_REJECT — income_cv F0 ───────────────────────────────────────
+r = _run("AUTO_REJECT — income_cv=0.80 (>0.75)", {**_base(), "income_cv": 0.80})
+_ok(r, "AUTO_REJECT", "T3")
 
-# ── Test 4: CREDIT_COACH (F1 fail — income_cv>0.55) ─────────────────────────
-c = {**_base(),
-     "income_cv": 0.65, "cashflow_drop_30d": 0.42,
-     "bill_on_time_ratio": 0.70, "active_days_per_week": 3.5,
-     "data_confidence": 0.65}
-r = _run("CREDIT_COACH — F1 fail (income_cv=0.65)", c)
-_assert(r, "CREDIT_COACH", "Test 4")
-assert len(r["credit_coach_plan"]) >= 3, "Coach plan must have >= 3 steps"
+# ── Test 4: CREDIT_COACH — F1 fail (income_cv) ───────────────────────────────
+r = _run("CREDIT_COACH — income_cv=0.65 → F1 fail", {
+    **_base(),
+    "income_cv": 0.65, "cashflow_drop_30d": 0.42,
+    "bill_on_time_ratio": 0.70, "active_days_per_week": 3.5,
+    "data_confidence": 0.65,
+})
+_ok(r, "CREDIT_COACH", "T4")
+assert len(r["credit_coach_plan"]) >= 3
 
-# ── Test 5: CREDIT_COACH (low data_confidence 0.40–0.60) ─────────────────────
-c = {**_base(), "data_confidence": 0.45, "missing_data_ratio": 0.55}
-r = _run("CREDIT_COACH — low data_confidence=0.45", c)
-_assert(r, "CREDIT_COACH", "Test 5")
+# ── Test 5: CREDIT_COACH — low data_confidence ───────────────────────────────
+r = _run("CREDIT_COACH — data_confidence=0.45 (<60%)", {
+    **_base(), "data_confidence": 0.45, "missing_data_ratio": 0.55,
+})
+_ok(r, "CREDIT_COACH", "T5")
 
-# ── Test 6: HUMAN_REVIEW (borderline profile) ─────────────────────────────────
-c = {**_base(),
-     "income_cv": 0.38, "bill_on_time_ratio": 0.82,
-     "data_confidence": 0.65, "shared_device_count": 1, "bad_neighbor_count": 1,
-     "trust_score": 0.65, "graph_risk_score": 0.32, "rating_avg": 4.3,
-     "cancel_rate": 0.10, "avg_monthly_income": 10_000_000}
-r = _run("HUMAN_REVIEW — borderline", c)
-_assert(r, "HUMAN_REVIEW", "Test 6")
+# ── Test 6: HUMAN_REVIEW — borderline ────────────────────────────────────────
+r = _run("HUMAN_REVIEW — borderline", {
+    **_base(),
+    "income_cv": 0.38, "bill_on_time_ratio": 0.82,
+    "data_confidence": 0.65,  # >= 0.60 (not coach) but < 0.70 (not auto-approve)
+    "avg_monthly_income": 10_000_000,
+    "shared_device_count": 1, "bad_neighbor_count": 1,
+})
+_ok(r, "HUMAN_REVIEW", "T6")
 
-# ── Test 7: Demo cases — 4 preset scenarios ───────────────────────────────────
+# ── Test 7: Demo cases ────────────────────────────────────────────────────────
 from app import DEMO_CASES
 
-# Expected decisions for each demo case.
-# All decisions emerge purely from feature values — none are hard-coded by name.
-case_expected = {
+EXPECTED = {
     "Happy Path — Nguyễn Văn A": "AUTO_APPROVE",
-    "Risk-First — Trần Thị B":   "FRAUD_REJECT",   # fraud_ring=1, graph_risk=0.91
+    "Risk-First — Trần Thị B":   "AUTO_REJECT",    # fraud_ring=1 → F0 fail
     "Credit Coach — Lê Văn C":   "CREDIT_COACH",   # income_cv=0.65 → F1 fail
     "Vùng xám — Nguyễn Thị D":  "HUMAN_REVIEW",   # borderline score/conf
 }
 
-print("\n── Demo case verification ─────────────────────────────────────────────")
-all_pass = True
-for name, expected in case_expected.items():
-    c = {**DEMO_CASES[name]}
-    r = run_flexiscore_pipeline(c, model)
+print("\n── Demo cases ────────────────────────────────────────────────────────")
+for name, expected in EXPECTED.items():
+    r = run_flexiscore_pipeline({**DEMO_CASES[name]}, model)
     ok = r["decision"] == expected
-    status = "PASS" if ok else "FAIL"
-    print(f"  [{status}] {name}")
-    print(f"         FlexiScore={r['flexiscore']:.0f}  PD={r['pd']:.2%}"
-          f"  F0={r['f0_status']}  F1={r['f1_status']}  => {r['decision']}"
-          f"  (expected {expected})")
-    if not ok:
-        all_pass = False
-
-if not all_pass:
-    raise AssertionError("One or more demo cases failed — see output above.")
+    print(
+        f"  [{'PASS' if ok else 'FAIL'}] {name}"
+        f"  Score={r['flexiscore']:.0f}  PD={r['pd']:.1%}"
+        f"  F0={r['f0_status']}  F1={r['f1_status']}"
+        f"  => {r['decision']}  (expected {expected})"
+    )
+    assert ok, f"{name}: got {r['decision']}, expected {expected}"
 
 print("\n=== ALL TESTS PASSED ===")
