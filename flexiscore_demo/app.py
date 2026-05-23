@@ -105,7 +105,7 @@ DEMO_CASES = {
         "data_confidence": 0.55, "missing_data_ratio": 0.38,
         "source_reliability_score": 0.60,
     },
-    "Vùng xám — Nguyễn Thị D": {
+    "Human Review — Nguyễn Thị D": {
         "customer_id": "DEMO_004", "name": "Nguyễn Thị D",
         "customer_type": "small_merchant", "age": 35,
         "requested_amount": 25_000_000, "requested_tenor_months": 18,
