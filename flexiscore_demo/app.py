@@ -86,7 +86,7 @@ DEMO_CASES = {
         "data_confidence": 0.55, "missing_data_ratio": 0.38,
         "source_reliability_score": 0.60,
     },
-    "Human Review — Nguyễn Thị D": {
+    "Vùng xám — Nguyễn Thị D": {
         "customer_id": "DEMO_004", "name": "Nguyễn Thị D",
         "customer_type": "small_merchant",
         "age": 35, "identity_verified": 1,
@@ -259,12 +259,17 @@ def _sidebar(base: dict):
             "#f57c00" if conf < 0.60 else
             "#1565c0" if conf < 0.70 else "#1b5e20"
         )
-        conf_hint = (
-            "❌ F0 FAIL — cần tối thiểu 1 nguồn" if conf < 0.40 else
-            "📚 → CREDIT_COACH nếu không có nguồn khác" if conf < 0.60 else
-            "⚠️ Cần thêm nguồn để auto-approve (≥70%)" if conf < 0.70 else
-            "✅ Đủ điều kiện auto-approve"
-        )
+        # Hint dựa trên giá trị confidence, không phải số nguồn
+        # (1 nguồn nhỏ như EVN/VNPT = 20% vẫn có thể < 40%)
+        if conf < 0.40:
+            need = "ngân hàng (30%) hoặc platform (30%)" if n_src > 0 else "ít nhất ngân hàng hoặc platform"
+            conf_hint = f"❌ F0 FAIL — confidence {conf:.0%} < 40% · Cần thêm {need}"
+        elif conf < 0.60:
+            conf_hint = f"📚 → CREDIT_COACH — confidence {conf:.0%} < 60% · Kết nối thêm nguồn"
+        elif conf < 0.70:
+            conf_hint = f"⚠️ HUMAN_REVIEW — confidence {conf:.0%} < 70% · Cần thêm để auto-approve"
+        else:
+            conf_hint = f"✅ Đủ điều kiện auto-approve — confidence {conf:.0%} ≥ 70%"
         st.markdown(
             f"<div style='margin-top:6px;padding:8px 12px;"
             f"background:{conf_color}15;border-left:4px solid {conf_color};"
