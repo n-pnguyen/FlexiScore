@@ -109,7 +109,7 @@ EXPECTED = {
     "Happy Path — Nguyễn Văn A": "AUTO_APPROVE",
     "Risk-First — Trần Thị B":   "AUTO_REJECT",    # fraud_ring=1 → F0 fail
     "Credit Coach — Lê Văn C":   "CREDIT_COACH",   # income_cv=0.65 → F1 fail
-    "Vùng xám — Nguyễn Thị D":  "HUMAN_REVIEW",   # borderline score/conf
+    "Human Review — Nguyễn Thị D":  "HUMAN_REVIEW",   # borderline score/conf
 }
 
 print("\n── Demo cases ────────────────────────────────────────────────────────")

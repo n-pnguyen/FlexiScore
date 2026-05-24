@@ -45,7 +45,7 @@ def run_flexiscore_pipeline(customer: dict, model) -> dict:
     data_conf = float(customer.get("data_confidence", 1.0))
     decision, reason_codes, coach_plan = _decide(
         f0_fail   = gates["f0_status"] == "FAIL",
-        f1_fail   = gates["f1_status"] == "FAIL",
+        f1_fail = gates["f1_status"] in ("FAIL", "WARN"),
         flexiscore = flexiscore,
         pd_score  = pd_score,
         data_conf = data_conf,
